@@ -28,15 +28,92 @@ The code is separated into two categories:
 
 - **My Code:** Scripts I developed during the rotation based on code examples and my own learning. I had never learned R before this rotation, so my code should not be assumed to be good or correct. I also went back into most of my code during the last 2 weeks of the rotation, added plot-exporting code, and broke some scripts. However, the code will still help as a supplement to your own learning.
 
-## Overview of Analyses
+## Initial Exploration
 
-| Analysis | Notes | Resources |
-| --- | ---------- | -- |
-| Initial Exploration | This went on during the first 2 weeks of my rotation. The goal was to get familiar with how R code works (which is very different from my normal coding languages). I learned from Ashley’s code how to load data, sort it, work with the different types of microbiome data, and save new files. This helped me learn the necessary foundations to explore the different plots in my code, LearningPlots.R. | Ashley’s Code:<br>DRIFT_Data_Processing_PATH.Rmd<br><br>My Code:<br>LearningPlots.R |
-| Alpha Diversity Linear Model: lm() | For this project, I was tasked with using a linear model for alpha diversity. I learned how to do this from Ashley’s code. Their code is very important because it shows examples of lab practices for preparing the DRIFT data and how to create a forest plot for a single result. I used some of this code in every script over the 10 weeks. The example HTML output code was incredibly important as well. It helped me learn how to organize my code better and allowed me to output a file for presenting my results cleanly at lab meetings. The purrr code example from Ashley also carried into every script I made for the rotation. | Ashley’s Code:<br>DRIFT_Example_Regressions.Rmd<br>Example html output.Rmd<br>DRIFT_Example_purr.Rmd<br><br>My Code:<br>RegressionsLearning.Rmd<br>AlphaDiversityLM.Rmd |
-| Volatility Analyses Linear Model: lm() | For this project, I was tasked with learning microbiome volatility data. This required merging long-format and wide-format data, which was a challenge initially. Data preparation and model running in this code are very similar to the alpha diversity code. I never actually learned the MiRKAT code. It wasn’t required for the models. However, I think that MiRKAT will solve a lot of problems that I ran into, so maybe learn it. | Ashley’s Code:<br>DRIFT_Example_MiRKAT<br><br>My Code:<br>Volatility_analysis.Rmd |
-| Linear Mixed-Effects Models: lmer() | For this project, I was introduced to a new model called linear mixed-effects regression. I was given code examples from both Maggie and Ashley for this. | Maggie’s Code:<br>LME_example.Rmd<br><br>Ashley’s Code:<br>DRIFT_Example_LMER.Rmd<br><br>My Code:<br>LMER.Rmd |
-| Linear Decomposition Model: ldm() | This was my final task of the rotation. I was given no code to go off of. Instead, I was given resources to learn about LDM models. I managed to finish a heatmap with all the microbiome and a bar graph of the beta values with q-values less than 0.1. I don’t feel happy with my code or results here. When I run the model, I get a different number of results, but the same taxa are appearing. AI said to provide a seed to the model so that the results are the same. However, I want to learn more about the model before I trust AI’s advice. | [https://academic.oup.com/bioinformatics/article/36/14/4106/5823298?login=true](https://academic.oup.com/bioinformatics/article/36/14/4106/5823298?login=true)<br><br>[https://rstudio-pubs-static.s3.amazonaws.com/556541_901bef17ae49456c8e01ae6b9e163701.html](https://rstudio-pubs-static.s3.amazonaws.com/556541_901bef17ae49456c8e01ae6b9e163701.html)<br><br>My Code:<br>LDM2.Rmd |
+### Notes
+
+This went on during the first 2 weeks of my rotation. The goal was to get familiar with how R code works (which is very different from my normal coding languages). I learned from Ashley’s code how to load data, sort it, work with the different types of microbiome data, and save new files. This helped me learn the necessary foundations to explore the different plots in my code, LearningPlots.R.
+
+### Resources
+
+Ashley’s Code:
+
+- DRIFT_Data_Processing_PATH.Rmd
+
+My Code:
+
+- LearningPlots.R
+
+## Alpha Diversity Linear Model: lm()
+
+### Notes
+
+For this project, I was tasked with using a linear model for alpha diversity. I learned how to do this from Ashley’s code. Their code is very important because it shows examples of lab practices for preparing the DRIFT data and how to create a forest plot for a single result. I used some of this code in every script over the 10 weeks. The example HTML output code was incredibly important as well. It helped me learn how to organize my code better and allowed me to output a file for presenting my results cleanly at lab meetings. The purrr code example from Ashley also carried into every script I made for the rotation.
+
+### Resources
+
+Ashley’s Code:
+
+- DRIFT_Example_Regressions.Rmd
+- Example html output.Rmd
+- DRIFT_Example_purr.Rmd
+
+My Code:
+
+- RegressionsLearning.Rmd
+- AlphaDiversityLM.Rmd
+
+## Volatility Analyses Linear Model: lm()
+
+### Notes
+
+For this project, I was tasked with learning microbiome volatility data. This required merging long-format and wide-format data, which was a challenge initially. Data preparation and model running in this code are very similar to the alpha diversity code. I never actually learned the MiRKAT code. It wasn’t required for the models. However, I think that MiRKAT will solve a lot of problems that I ran into, so maybe learn it.
+
+### Resources
+
+Ashley’s Code:
+
+- DRIFT_Example_MiRKAT
+
+My Code:
+
+- Volatility_analysis.Rmd
+
+## Linear Mixed-Effects Models: lmer()
+
+### Notes
+
+For this project, I was introduced to a new model called linear mixed-effects regression. I was given code examples from both Maggie and Ashley for this.
+
+### Resources
+
+Maggie’s Code:
+
+- LME_example.Rmd
+
+Ashley’s Code:
+
+- DRIFT_Example_LMER.Rmd
+
+My Code:
+
+- LMER.Rmd
+
+## Linear Decomposition Model: ldm()
+
+### Notes
+
+This was my final task of the rotation. I was given no code to go off of. Instead, I was given resources to learn about LDM models. I managed to finish a heatmap with all the microbiome and a bar graph of the beta values with q-values less than 0.1. I don’t feel happy with my code or results here. When I run the model, I get a different number of results, but the same taxa are appearing. AI said to provide a seed to the model so that the results are the same. However, I want to learn more about the model before I trust AI’s advice.
+
+### Resources
+
+- https://academic.oup.com/bioinformatics/article/36/14/4106/5823298?login=true
+- https://rstudio-pubs-static.s3.amazonaws.com/556541_901bef17ae49456c8e01ae6b9e163701.html
+- https://ftp.rrze.uni-erlangen.de/cran/web/packages/LDM/vignettes/LDM.pdf
+
+My Code:
+
+- LDM2.Rmd
 
 ## Software and Packages
 
