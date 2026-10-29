@@ -1,0 +1,217 @@
+---
+title: "DRIFT Data Processing"
+author: "AS"
+date: "`r format(Sys.time(), '%m/%d/%y')`"
+output:
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+<br>
+
+## Daily Caloric Restriction vs Intermittent Fasting (DRIFT)
+
+### Install/load in packages
+
+This chunk is not included in the html file
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = F, warning = F)
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(tableone)
+library(readxl)
+library(RColorBrewer)
+library(knitr)
+library(phyloseq)
+library(devtools)
+#install_github("microbiome/microbiome")
+library(microbiome)
+#BiocManager::install("DESeq2")
+library(ape)
+library(Biostrings)
+#BiocManager::install("ANCOMBC")
+#install.packages("GUniFrac")
+library(GUniFrac)
+#install.packages("LDM_6.0.tar.gz", repos = NULL, type = "source")
+#install.packages("ecodist")
+library(ecodist)
+#install.packages("forestplot")
+library(forestplot)
+#install.packages("forestploter")
+library(forestploter)
+#install.packages('tidyMicro') 
+#devtools::install_github("CharlieCarpenter/tidyMicro")
+#library(tidyMicro)
+library(plyr)
+library(ggpubr)
+#install.packages("cowplot")
+library(cowplot)
+library(ggtext)
+
+```
+
+<br>
+
+This r markdown (.rmd) file takes the updated meta data files (which have been previously filtered) and replaces the old meta data file in a phyloseq object
+
+The phyloseq object contains meta data (demographic & clinical data for participants), otu data, taxanomic data, and a phylogenetic tree
+
+Code on how to pull each of these data from the phyloseq object are provided below 
+
+Notes about the data:
+
+Meta data
+
+* 150 participants with 495 stool samples across BL, 3m, 6m, and 12m timepoints 
+* Long table with repeating rows for participants at various timepoints (e.g. unique SampleIDs [AAL-144.12m], but repeating RID [144] & subject_id [AAL-144])
+* Variables:
+  - IDs: SampleID, RID, subject_id 
+  - Intervention (character) and imf (binary: 0/1)
+  - Covariates: 
+      - age
+      - sex (0/1) and sex_cat
+      - race and race_cat with 3 categories (Black, White, Other with White as referent)
+      - ethnicity (0/1)
+  - Timepoint (BL, 3m, 6m, 12m)
+  - Time (0, 3, 6, 12)
+  - Outcomes (raw, absolute change, and % change): 
+      - Primary: weight and wc
+      - Secondary: BMI, MetS, HOMA-IR, HbA1c, WBTOT, RMR, adherence, calories
+      - Possibly: 
+          - appetite hormone: Ghrelin, Peptide YY, Leptin, Adiponectin
+          - CRP, BP, Cholesterol (Total, HDL, LDL, Triglycerides)
+          - Adiponectin/Leptin ratio
+  - Alpha diversity measures: shannon_entropy, observed_features, pielou_evenness, faith_pd
+  
+OTU table
+
+Taxa
+
+Phylogentic Tree
+OTU table
+
+Taxa
+
+Phylogentic Tree
+
+
+### Data Preparation  
+```{r}
+# load in the new meta data file using the fread() function from the data.table package
+
+meta_sub <- fread(file='C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_long_metadata_microbiome_092026.csv')
+# can view data by clicking on the newly loaded in data table in the environment to the right or use: 
+view(meta_sub)
+# this file is a long format data table with repeating rows for participants 
+dim(meta_sub)
+#[1] 495  40
+# 495 rows/samples with 40 columns/variables 
+length(unique(meta_sub$subject_id.x))
+#[1] 150
+# 150 unique participants
+
+meta_sub_wide <- fread(file='C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_wide_metadata_microbiome_092026.csv')
+# this file is a wide format data table with only 1 row per participant 
+
+# load in phyloseq object using load(
+load("C:/Users/jhres/Documents/DRIFT2/Week3/PhyloseqObj_Updated_N150_092026.RData")
+#load(file='/Users/ashleyward/Desktop/DRIFT2_microbiome/Updated/DRIFT2.Phylo.COUNT.R21116.0923.RData')
+#load(file='/Users/ashleyward/Desktop/DRIFT2_microbiome/Updated/DRIFT2.Phylo.RA.0923.RData')
+#load(file='/Users/ashleyward/Desktop/DRIFT2_microbiome/Updated/DRIFT2.Phylo.CLR.0923.RData')
+
+```
+
+```{r, include=FALSE}
+#refactor variables
+meta_sub$Timepoint <- factor(meta_sub$Timepoint, lev=c('BL', '3m', '6m', '12m'))
+meta_sub$Intervention<- factor(meta_sub$Intervention, lev=c('IMF', 'DCR'))
+meta_sub$imf<- factor(meta_sub$imf, lev=c('1','0'))
+# 1 (IMF) is referent 
+
+meta_sub$race_cat_3<- factor(meta_sub$race_cat_3, lev=c('White','Black/African American', 'Other'))
+
+meta_sub$ethnicity_cat<- factor(meta_sub$ethnicity_cat, lev=c('Not Hispanic/Latino','Hispanic/Latino'))
+
+```
+
+
+### Replace meta data in phyloseq object
+```{r}
+
+#starting with CLR transformed data
+#pull the OTU, taxomony, and phylogentic trees from the phyloseq object and give them unique names
+otu <- otu_table(drift.phy.clr) #the otu table is organized with the OTUs as rownames and SampleIDs as columns
+otu_as_df <- as.data.frame(otu)
+dim(otu)
+rownames(otu)
+colnames(otu)
+tax <- tax_table(drift.phy.clr) #the taxonomy is organized with the OTUs as rownames and Taxonomic Ranks as columns
+tree <- phy_tree(drift.phy.clr) #the tree is a list where the tip.labels are the OTUs
+
+#ensure meta data is properly formatted
+meta_data <- as.data.frame(meta_sub)
+rownames(meta_data) <- meta_data$SampleID
+meta_sd <- sample_data(meta_data)
+
+# Check the data types
+class(otu)
+class(tax)
+class(meta_sd)
+class(tree)
+
+#remake the phyloseq object with these components 
+drift.phy.clr <- phyloseq(otu, tax, meta_sd, tree)
+
+
+drift.phy.clr
+
+#the new phyloseq object contains 495 samples 
+nsamples(drift.phy.clr)
+
+#repeat for the other phyloseq objects
+
+#raw read counts
+otu <- otu_table(drift.phy.count)
+tax <- tax_table(drift.phy.count)
+tree <- phy_tree(drift.phy.count)
+
+drift.phy.count <- phyloseq(otu, tax, meta_sd, tree)
+
+drift.phy.count
+nsamples(drift.phy.count)
+
+#rarefied count data
+otu <- otu_table(drift.phy.count.r21116)
+tax <- tax_table(drift.phy.count.r21116)
+tree <- phy_tree(drift.phy.count.r21116)
+
+drift.phy.count.r21116 <- phyloseq(otu, tax, meta_sd, tree)
+
+drift.phy.count.r21116
+nsamples(drift.phy.count.r21116)
+
+#relative abundance
+otu <- otu_table(drift.phy.ra)
+tax <- tax_table(drift.phy.ra)
+tree <- phy_tree(drift.phy.ra)
+
+drift.phy.ra <- phyloseq(otu, tax, meta_sd, tree)
+
+drift.phy.ra
+nsamples(drift.phy.ra)
+```
+
+### Save updated phyloseq objects
+```{r}
+save(drift.phy.clr, drift.phy.count, drift.phy.count.r21116, drift.phy.ra, 
+     file='C:/Users/jhres/Documents/DRIFT2/Week3/PhyloseqObj_Updated_N150_092026.RData')
+```
+
+
+

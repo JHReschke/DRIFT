@@ -1,0 +1,194 @@
+---
+title: "DRIFT_Example_Regressions"
+author: "AS"
+date: "2026-09-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(broom)
+library(tibble)
+library(tidyverse)
+library(ggplot2)
+```
+
+
+This code goes through performing linear regression models to see if the baseline alpha diversity measure predict change in clicial outcomes (e.g., do the microbiome in your gut prior to the interveniton predict weight loss during the intervention you may lose during the intervention)
+
+
+### Load in data
+```{r}
+meta <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_long_metadata_microbiome_092026.csv")
+meta_wide <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_wide_metadata_microbiome_092026.csv")
+```
+
+```{r}
+#prep data
+
+meta_wide$Intervention<- factor(meta_wide$Intervention, lev=c('IMF', 'DCR'))
+
+meta_wide$imf<- factor(meta_wide$imf, lev=c('1','0'))
+# 1 (IMF) is referent 
+
+meta_wide$race_cat_3<- factor(meta_wide$race_cat_3, lev=c('White','Black/African American', 'Other'))
+
+meta_wide$race_3<- factor(meta_wide$race_3, lev=c('0', '1', '2'))
+
+table(meta_wide$sex)
+meta_wide$sex <- factor(meta_wide$sex, lev=c('0','1'))
+
+meta_wide$ethnicity<- factor(meta_wide$ethnicity, lev=c('0','1'))
+
+#standardize the alpha diversity measures to have a mean of 0 and sd of 1
+#this will make plots later look nicer and have consistent axes for easier comparison between measures
+
+colSums(is.na(meta_wide[, c('pielou_evenness_BL', 'shannon_entropy_BL', 'faith_pd_BL', 'observed_features_BL')])) #check for missing data
+meta_standardized <- meta_wide %>% filter(is.na(pielou_evenness_BL)==F, is.na(shannon_entropy_BL)==F, is.na(faith_pd_BL)==F, is.na(observed_features_BL)==F)
+#this removes the 5 missing BL stool samples ... N=145 now
+
+mean(meta_standardized$shannon_entropy_BL) #not 0 (or close to 0)
+sd(meta_standardized$shannon_entropy) #not 1 (or close to 1)
+
+meta_standardized <- meta_standardized %>% mutate_at(c('pielou_evenness_BL', 'shannon_entropy_BL', 'faith_pd_BL', 'observed_features_BL'), ~(scale(.) %>% as.vector))
+
+mean(meta_standardized$pielou_evenness_BL)
+sd(meta_standardized$pielou_evenness_BL)
+
+```
+
+### Regression models
+Do BL alpha diversity measures predict change in weight from BL to 3m
+
+```{r}
+#easiet way is to make a new dataset with only timepoints of interest
+#meta_standardized
+#meta.bl.3 <- meta_standardized %>% filter(Timepoint=='BL' | Timepoint=='3m')
+#meta.bl.3 <- meta.bl.3 %>% group_by(subject_id)
+#meta.bl.3 <- meta.bl.3 %>% filter(n() == 2)
+#meta.bl.3 <- ungroup(meta.bl.3)
+#meta.bl.3 <- as.data.frame(meta.bl.3)
+ 
+#meta.3 <-  meta.bl.3 %>% filter(Timepoint=='3m')
+#meta.bl <-  meta.bl.3 %>% filter(Timepoint=='BL')
+```
+
+
+```{r}
+#here is a VERY basic regression model (outcome ~ predictor) that does not include any covariates (e.g., things that you control for in the models)
+
+# ******** This is the key variable that we are editing to add covariance**********
+shannon_wt <- lm(
+  change_outcome_wt_fnl_3m_BL ~ shannon_entropy_BL + race_3 + ethnicity, 
+  data = meta_standardized) # + to add each covariant into the model
+shannon_wt
+
+
+# the output (shannon_wt) is a list of 13, so we will use summary() to more easily view the results
+shannon_wt #gives you the formula and coeffiecents for the variables
+
+summary(shannon_wt) #gives you more info
+# we are not interested in the intercept data
+
+summary(shannon_wt)$coefficients[2,] #gives only values for shannon
+
+
+shannon_wt$coefficients #these are the betas
+confint(shannon_wt) #these are the betas
+shannon_wt_df <- data.frame(summary(shannon_wt)$coefficients,
+                             confint(shannon_wt))
+#pull the beta estimate and 95% confidence intervals and put them into a dataframe
+shannon_wt_df <- data.frame(summary(shannon_wt)$coefficients,
+                             confint(shannon_wt)) %>%
+                      dplyr::rename(p.value = Pr...t..,
+                                    LCL = X2.5..,
+                                    UCL = X97.5..)
+
+shannon_wt_df <- data.frame(summary(shannon_wt)$coefficients,  #pull the coefficent table
+                             confint(shannon_wt)) %>%          #get the confidence intervals
+                      dplyr::rename(p.value = Pr...t..,        #rename vairables 
+                                    LCL = X2.5..,
+                                    UCL = X97.5..) %>%
+                      tibble::rownames_to_column("term") %>%  #originally the "terms" (i.e., the intercept and any predictor variables or covariates were rownames)
+                      dplyr::filter(term != "(Intercept, race_31, race_32)")    #select the variables of interest or filter out those that are not of interest 
+
+shannon_wt_df
+
+#or all in one simple step using broom
+shannon_wt_df <- tidy(shannon_wt, conf.int = TRUE) %>%
+                      dplyr::filter(term == "shannon_entropy_BL")
+
+#you can rename these column names or leave them as is
+```
+
+
+### Forest plots
+
+This is a forest plot showing the beta coefficent ("estimate"). Here we can see the direction of effect (positive beta value on the right side of the dashed line at 0 indicating no effect). The confidence interval extends from the point (a short line = more precise). Since our CI crosses the 0 on the x-axis, BL shannon does not predict change in weight from BL to 3m (also seen in the p-value which is >0.05). The non-sigificant value is represnted by an open circle.
+
+```{r}
+
+shannon_wt_df <- shannon_wt_df %>%
+  mutate(outcome = "Weight",     #will be the label for the x-axis
+         sig = ifelse(p.value < 0.05, "Sig", "N.S."))   #for indicating if the p-value is significant
+
+alpha_plot <- ggplot(shannon_wt_df, aes(x = outcome, y = estimate)) +    #outcome on the "x-axis" and beta on the "y-axis" ... we flip the plot later
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey20') +    #gives the dashed line at "y-intercept" of 0 ... we flip the plot to have this on the x-axis
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high),
+                width = 0.05, size = 1.3) +    #adds the confidence interval line
+  geom_point(aes(shape = sig), size = 9, color = "#5FA3CC") +     # this is the point/beta - shape, size, and color of the circles
+  coord_flip() +  #flip plot
+  scale_shape_manual(values = c(1, 19)) +     # N.S. = open circles, Sig = solid/filled in circles
+  labs(x = NULL, y = "Beta Coefficient", shape = "Significance") +
+  theme_bw() +      #makes it a clean looking plot (white background)
+  theme(        #additional theme options (e.g., text sizes)
+    axis.title = element_text(size = 16, face = "bold"),
+    axis.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    plot.margin = margin(t = 10, r = 15, b = 10, l = 15, unit = "pt")
+  )
+alpha_plot
+
+
+#ggsave(alpha_plot, file='/Users/ashleyward/Desktop/DRIFT2_microbiome/manuscript/PATH//DRIFT_alpha_diversity_shannon_lm_overall_change_outcomes_092026.png', device='png', units='in', width=17, height=12, dpi=900)
+```
+
+<br>
+
+You can have more complex forest plots with multiple outcomes, predictors, or groups (e.g., all participants or divided by IMF/DCR intervention groups). This often invloves using facets 
+
+
+### Forest plots
+```{r}
+
+# alpha_plot2 <- ggplot(shannon_wt_df2, aes(x = alpha, y = estimate, color = imf)) +
+#   geom_hline(yintercept = 0, linetype = 'dashed', color = 'grey20') +
+#   geom_errorbar(position = position_dodge(width = 0.7), 
+#                 aes(ymin = lcl, ymax = ucl),
+#                 width = 0.05, size = 1.3) +
+#   geom_point(position = position_dodge(width = 0.7), 
+#              aes(shape = sig), size = 9) +
+#   coord_flip() + 
+#   facet_grid(. ~ outcome, scales = "free") +.   #here we are faceting by outcome (so will we have individual plots for each outcome in the figure)
+#   scale_shape_manual(values = c(19, 1)) +  
+#   scale_colour_manual(breaks = c("IMF", "DCR", "All"), 
+#                       values = c("#BEAED4", "#7FC97F", "#5FA3CC")) +
+#   labs() + #can fill in with labels
+#   theme_bw() +
+#   theme( ) #can be filled in with specific text sizdes
+
+#when filled in this plot would make something similar to the 2nd example image provided
+#note in the attached plot for WC, the significance for DCR is not correct (should be open circles)
+
+```
+
+
+<br>
+
+Now you can go through and try this with a more complete model controlling for appropriate covariates. You can also repeat this for all four of the alpha diversity measures and the other timepoints (e.g., 3-6m, and 6-12m). Additionally, Maggie or I can provide some example purrr code which uses the map() function to run throgh multiple outcomes at once, so you don't need to make a million models :)
+
+Good luck, let me know if you have any questions!
+

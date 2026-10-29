@@ -1,0 +1,472 @@
+---
+title: "Linear Decomposition Model (LDM)"
+author: "Jacob"
+date: "2026-10-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(lme4)
+library(lmerTest)
+#install.packages("R.utils")
+library(R.utils)
+library(dplyr)
+#install.packages("LDM")
+library(LDM)
+```
+
+
+```{r}
+meta_long <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_long_metadata_microbiome_092026.csv")
+load("C:/Users/jhres/Documents/DRIFT2/Data/Raw/2026-10-06/DRIFT_meta_long_pa_03.2026.rdata")
+load("C:/Users/jhres/Documents/DRIFT2/Data/Raw/2026-10-06/Genus_Sp_tables.rdata")
+mb_var_to_keep <- fread("C:/Users/jhres/Documents/DRIFT2/Week8/ok25_variables_to_keep.csv")
+
+```
+
+```{r, include=FALSE}
+mb_var_to_keep
+
+# Create the DF and merge files
+# Checking if mb_var_to_keep$taxa.subset values exist
+has_name(genus.count, mb_var_to_keep$taxa.subset)
+
+filter_vals <- c(
+              "SampleID",
+              "subject_id",
+              "time",
+              "age",
+              "sex",
+              "race3",
+              "ethnicity",
+              "Intervention",
+              "imf",
+              "M_Energy_kcal",
+              "avg_mvpa",
+              "W0_avg_mvpa",
+              "delta_avg_mvpa",
+              "pdelta_avg_mvpa"
+              )
+
+# Put the filter vals from long.pa into meta_ldm_long
+ldm_data_long <- meta.long.pa %>%
+  dplyr::select(dplyr::all_of(filter_vals))
+
+# remove 18m rows
+ldm_data_long <- ldm_data_long %>%
+  dplyr::filter(!grepl("\\.18m$", SampleID))
+
+# Add adherence value
+ldm_data_long <- ldm_data_long %>%
+  dplyr::inner_join(
+    meta_long %>%
+      dplyr::select(
+        SampleID,
+        prop_cal_diff_from_rx
+      ),
+    by = "SampleID"
+  ) 
+
+# add the taxa
+ldm_data_long <- ldm_data_long %>%
+  dplyr::inner_join(
+    genus.count %>%
+      dplyr::select(
+        SampleID,
+        all_of(mb_var_to_keep$taxa.subset)
+      ),
+    by = "SampleID"
+  ) 
+
+
+# Double check merge
+
+# check for all variables
+setdiff(mb_var_to_keep$taxa.subset, names(ldm_data_long))
+
+# create df containing all taxa
+taxa_counts <- ldm_data_long %>%
+  dplyr::select(dplyr::all_of(mb_var_to_keep$taxa.subset))
+
+# Check missing counts
+all(vapply(taxa_counts, is.numeric, logical(1)))
+sum(is.na(taxa_counts))
+
+# Create the matrix of taxa
+genus_count_matrix <- as.matrix(taxa_counts)
+rownames(genus_count_matrix) <- ldm_data_long$SampleID
+
+# check counts
+all(is.finite(genus_count_matrix) & genus_count_matrix >= 0)
+all(genus_count_matrix == floor(genus_count_matrix))
+sum(rowSums(genus_count_matrix) == 0)
+
+# Remove taxa that was added originally
+ldm_metadata_long <- ldm_data_long %>%
+  dplyr::select(-dplyr::all_of(mb_var_to_keep$taxa.subset)) %>%
+  as.data.frame()
+
+```
+
+```{r echo=FALSE}
+
+# check the data
+
+# check timepoint count
+table(ldm_metadata_long$time, useNA = "ifany")
+
+# check missing participant IDs should return 0
+sum(is.na(ldm_metadata_long$subject_id))
+
+# Original values
+table(ldm_data_long$race3, useNA = "ifany")
+table(ldm_data_long$ethnicity, useNA = "ifany")
+table(ldm_data_long$time, useNA = "ifany")
+
+
+# tell R that these are categories not numbers
+ldm_metadata_long <- ldm_metadata_long %>%
+  dplyr::mutate(
+    subject_id = factor(subject_id),
+    sex = factor(sex),
+    race3 = factor(
+      race3,
+      levels = c(3, 5, 7),
+      labels = c("Black", "White", "Other")
+    ),
+    race3 = relevel(race3, ref = "White"),
+    ethnicity = factor(
+      ethnicity,
+      levels = c(1, 2),
+      labels = c("Hispanic", "Non-Hispanic")
+    ),
+    ethnicity = relevel(ethnicity, ref = "Non-Hispanic"),
+    Intervention = factor(Intervention)
+  )
+
+
+# After factor conversion
+table(ldm_metadata_long$race3, useNA = "ifany")
+table(ldm_metadata_long$ethnicity, useNA = "ifany")
+table(ldm_metadata_long$time, useNA = "ifany")
+
+# check for missing values for id, time, sex, race, ethnicity
+ldm_metadata_long %>%
+  dplyr::summarise(
+    dplyr::across(
+      c(subject_id, time, sex, race3, ethnicity),
+      ~ sum(is.na(.x))
+    )
+  )
+
+
+```
+
+
+```{r}
+
+# Run LDM
+# Select microbiome measurements
+microbiome <- genus_count_matrix
+#controls
+covariates <- c("age", "sex", "race3", "ethnicity", "time")
+
+# variables to test
+predictors <- c(
+  "avg_mvpa",
+  "prop_cal_diff_from_rx",
+  "M_Energy_kcal"
+)
+
+# run LDM
+analyses <- setNames(
+  lapply(predictors, function(predictor) {
+
+    model_formula <- as.formula(
+      paste0(
+        "microbiome | (",
+        paste(covariates, collapse = " + "),
+        ") ~ ",
+        predictor
+      )
+    )
+
+    LDM::ldm(
+      formula = model_formula,
+      data = ldm_metadata_long,
+      cluster.id = subject_id,
+      perm.within.type = 'free',
+      perm.between.type = "none",
+      seed = 10272026,
+      n.cores = 1,
+      
+    )
+  }),
+  predictors
+)
+?lapply
+# Prints overall microbiome association p-values
+lapply(analyses, function(model) model$p.global.omni)
+```
+
+
+
+```{r, fig.width=12, fig.height=14}
+
+
+# grab predictor, taxon, q values
+taxa_results <- purrr::imap_dfr(
+  analyses,
+  function(model, predictor) {
+    tibble(
+      predictor = predictor,
+      taxon = colnames(model$y.freq),
+      q_value = as.numeric(model$q.otu.omni)
+    )
+  }
+)
+
+taxon_order <- taxa_results %>%
+  filter(predictor == "avg_mvpa") %>%
+  arrange(q_value) %>%
+  pull(taxon)
+
+taxa_results <- taxa_results %>%
+  mutate(
+    taxon = factor(taxon, levels = rev(taxon_order)),
+    predictor = factor(predictor, levels = predictors)
+  )
+
+n_participants <- n_distinct(ldm_metadata_long$subject_id)
+n_samples <- nrow(ldm_metadata_long)
+
+
+p1 <- ggplot(taxa_results, aes(x = predictor, y = taxon)) +
+  geom_tile(aes(fill = -log10(q_value))) +
+  scale_fill_gradient(
+    low = "white",
+    high = "red",
+    name = "-log10(q)"
+  ) +
+  labs(
+    title = "Microbiome associations",
+    subtitle = " MVPA: 148 Participants,  449 samples",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 22, face = "bold"),
+    plot.subtitle = element_text(size = 16),
+    strip.text = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  ) + 
+  theme(
+      plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.box.background = element_rect(fill = "transparent", colour = NA),
+      strip.background = element_rect(fill = "transparent", colour = NA)
+    )
+
+p1 
+
+```
+
+```{r, include=FALSE}
+#export
+taxa_results_sorted <- taxa_results %>%
+  arrange(q_value)
+
+write.csv(
+  taxa_results_sorted,
+  "LDM_taxa_results_sorted2.csv",
+  row.names = FALSE
+)
+
+getwd()
+
+
+```
+
+
+```{r, fig.width=12, fig.height=14}
+
+# Taxa with q < 0.1 for either exposure of interest
+filtered_taxa <- taxa_results %>%
+  filter(
+    predictor %in% c("avg_mvpa", "prop_cal_diff_from_rx"),
+    q_value < 0.1
+  ) %>%
+  pull(taxon) %>%
+  unique()
+
+# Keep original results for those taxa
+filtered_taxa_results <- taxa_results %>%
+  filter(
+    predictor %in% c("avg_mvpa", "M_Energy_kcal"),
+    taxon %in% filtered_taxa
+  )
+
+# Order taxa by MVPA q-value
+taxon_order <- filtered_taxa_results %>%
+  filter(predictor == "avg_mvpa") %>%
+  arrange(q_value) %>%
+  pull(taxon)
+
+filtered_taxa_results <- filtered_taxa_results %>%
+  mutate(
+    taxon = factor(taxon, levels = rev(taxon_order)),
+    predictor = factor(
+      predictor,
+      levels = c("avg_mvpa", "M_Energy_kcal")
+    )
+  )
+
+# Plot the results
+p2 <- ggplot(filtered_taxa_results, aes(x = predictor, y = taxon)) +
+  geom_tile(aes(fill = -log10(q_value))) +
+  scale_fill_gradient(
+    low = "white",
+    high = "red",
+    name = "-log10(q)"
+  ) +
+  labs(
+    title = "Microbiome associations",
+    subtitle = "MVPA: 149 Participants, 449 samples",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 16),
+    axis.text.y = element_text(size = 18),
+    axis.text.x = element_text(size = 24)
+  ) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA),
+    strip.background = element_rect(fill = "transparent", colour = NA)
+  )
+
+```
+
+
+```{r}
+
+# Combine MVPA betas with q-values
+mvpa_plot_data <- tibble(
+  taxon = colnames(analyses[["avg_mvpa"]]$beta),
+  beta = as.numeric(unlist(analyses[["avg_mvpa"]]$beta[1, ]))
+) %>%
+  left_join(
+    taxa_results %>%
+      filter(predictor == "avg_mvpa") %>%
+      select(taxon, q_value),
+    by = "taxon"
+  ) %>%
+  filter(q_value < 0.1) %>%
+  mutate(
+    q_group = if_else(
+      q_value < 0.05,
+      "q < 0.05",
+      "0.05 ≤ q < 0.10"
+    ),
+    taxon = reorder(taxon, beta)
+  )
+
+p3 <- ggplot(mvpa_plot_data, aes(x = beta, y = taxon, fill = q_group)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, color = "grey40") +
+  facet_grid(
+    q_group ~ .,
+    scales = "free_y",
+    space = "free_y"
+  ) +
+  scale_fill_manual(
+    values = c("red", "blue"),
+    name = "q-value"
+  ) +
+  labs(
+    title = "MVPA associations with microbial taxa",
+    x = "Beta",
+    y = "Taxa",
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid.major.y = element_blank()) + 
+  theme(
+    plot.title = element_text(size = 22, face = "bold"),
+    plot.subtitle = element_text(size = 16),
+    axis.text = element_text(size = 16, colour = "black"),
+    axis.title = element_text(size = 18),
+    strip.text = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  ) +
+  theme(
+      plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      legend.box.background = element_rect(fill = "transparent", colour = NA),
+      strip.background = element_rect(fill = "transparent", colour = NA)
+    )
+
+p3
+
+```
+
+
+```{r}
+
+# Output folder
+plot_dir <- "LDM_plots"
+dir.create(plot_dir, showWarnings = FALSE)
+
+ggsave(
+  filename = file.path(plot_dir, "LDM_all_taxa_heatmap.png"),
+  plot = p1,
+  width = 12,
+  height = 14,
+  units = "in",
+  dpi = 300,
+  bg = "transparent"
+)
+
+# Filtered heatmap
+ggsave(
+  filename = file.path(plot_dir, "LDM_filtered_taxa_heatmap.png"),
+  plot = p2,
+  width = 10,
+  height = 7,
+  units = "in",
+  dpi = 300,
+  bg = "transparent"
+)
+
+# MVPA beta bar plot
+ggsave(
+  filename = file.path(plot_dir, "LDM_MVPA_taxa_betas.png"),
+  plot = p3,
+  width = 10,
+  height = 7,
+  units = "in",
+  dpi = 300,
+  bg = "transparent"
+)
+
+# Show where the files were saved
+normalizePath(plot_dir)
+
+```

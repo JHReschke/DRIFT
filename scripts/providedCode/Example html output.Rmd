@@ -1,0 +1,87 @@
+---
+title: "Example html output 2024"
+author: "AW"
+date: "2024-01-16"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+<br>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = F, warning = F)
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+```
+
+This code goes through how to format your rmd file to produce nice HTML files
+
+<br>
+
+Heading Sizes are based on the # sign
+
+# Heading 1
+
+## Heading 2 
+
+### Heading 3
+
+#### Etc.
+
+<br>
+
+## Data Preparation  
+You can type things here as well. This is where I like to explain what is being shown or any significant results. There are various heading levels denoted by the number of pound signs (#).
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+## Plots
+#### Table1
+
+In this case table1 is just a smaller header
+```{r}
+
+```
+
+<br>
+
+### Changes in Clinical Measures {.tabset .tabset-pills}
+
+You can also use {.tabset} and {.tabset .tabset-pills} to make button sub headings  
+
+<br>
+
+#### Weight  {.tabset}
+
+```{r}
+
+```
+
+##### Other Code chucks
+```{r}
+
+```
+
+```{r}
+
+```
+
+<br>
+
+#### BMI
+
+```{r}
+
+```
+
+<br>

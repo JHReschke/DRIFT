@@ -1,0 +1,91 @@
+---
+title: "EDA_CODA"
+author: "MS"
+date: "4/21/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r , include=F}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(tibble)
+  library(tidyr)
+library(lme4)
+library(phyloseq)
+library(microbiome)  
+library(lmerTest)
+library(broom)
+library(broom.mixed)
+library(emmeans)
+```
+
+
+
+```{r, echo=F}
+
+
+load(file='/Users/stanislm/Documents/BIPM/K01/Data/AnalysisData/Peta/DRIFT_meta_long_pa_03.2026.RData') 
+
+```
+
+
+## Define data and outcomes
+
+```{r, echo=T}
+
+
+
+meta.long<- meta.long.pa %>%
+  dplyr::filter(time !=18)
+
+outcomes<- c('outcome_wt_fnl','wc_average', 'WBTOT_FAT','HOMA_IR','Hemoglobin_A1C')
+
+
+```
+
+
+## LME models
+
+```{r, echo=T}
+           
+## example running lmer mixed effects model on one outcome
+
+mod.single.out<- lmer(outcome_wt_fnl~ age_scale+sex+imf+race_cat3+hispanic+time + (1| subject_id), data = meta.long, REML = FALSE) %>%
+  tidy(., effects = "fixed", conf.int = TRUE)
+## using purr
+
+models<- meta.long %>%
+  dplyr::select(outcomes) %>%
+  purrr::map(~ lmer(.x ~exposure_var+ age_scale+sex+imf+race_cat3+hispanic+time + (1| subject_id), data = meta.long, REML = FALSE)) %>%
+  purrr::map(~tidy(., effects = "fixed", conf.int = TRUE))
+
+models.exposure<-  as.data.frame(do.call(rbind, models))  %>%
+  dplyr::filter(term=='exposure_var') %>%
+  dplyr::rename(exposure=term)%>%
+  mutate(fdr=p.adjust(p.value, method='fdr'))%>%
+  mutate(outcome=outcomes)%>%
+  dplyr::select(-effect) %>%
+  relocate(outcome)
+
+```
+
+
+
+
+
+## Output results
+
+```{r}
+
+fwrite(models.exposure,      file='/Users/stanislm/Documents/BIPM/K01/Output/Outcomes_LME/LME_exposure_date.csv')
+
+save(models.exposure,      file='/Users/stanislm/Documents/BIPM/K01/Output/Outcomes_LME/LME_exposure_date.RData')
+```
+
+

@@ -1,0 +1,89 @@
+---
+title: "DRIFT_Example_LMER"
+author: "AS"
+date: "2026-09-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = F, warning = F)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(broom)
+library(tibble)
+library(tidyverse)
+library(ggplot2)
+library(purrr)
+library(vegan)
+library(RColorBrewer)
+library(knitr)
+library(devtools)
+#install.packages('MiRKAT') 
+library(MiRKAT)
+#install.packages("cowplot")
+library(cowplot)
+library(ggtext)
+library(Matrix)
+library(lme4)
+
+#if you have issues getting lmer to run, you may need to:
+#remove Phyloseq if installed
+#re-install Matrix & lme4 
+
+#remove.packages("Matrix")
+#remove.packages("lme4")
+#install.packages("Matrix", type = "binary")
+#install.packages("lme4", type = "binary")
+#library(Matrix)
+#library(lme4)
+#fm1 <- lmer(Reaction ~ Days + (Days | Subject), sleepstudy)
+#check to see if it runs now
+
+```
+
+
+Linear mixed effects regression (lmer) models are used with longitudinal data containing repeated measures (e.g., repeated IDs over multiple timepoints). We will use the function lmer() from the lme4 package to run these models. In these models observations are grouped. Fixed effects are those that we actually want to estimate (predictors and covariates), while the random effects are the variation between groups
+
+options for the random effects:
+(1 | group)                   # random intercept: if ID ... each ID would have its own intercept 
+(1 + time | group)            # random intercept AND slope for time
+*plus others
+
+
+```{r}
+meta <- fread()
+
+```
+
+```{r}
+#factor categorical variables 
+#standardize alpha diversity measures
+```
+
+These lmer models look very similar to the lm models and you can similarily use purrr() to loop through multilpe outcomes
+```{r}
+
+# ***NOTE: you will need to slightly adjust the covarviates for these models***
+
+model <- lmer(y ~ fixed_predictor + (random_slope | group), data = df)  # random slope can be a variable such as time, or it can be 1 to fit an intercept for each value of your "group" variable 
+
+#lme4 does not calucate pvalues, you use can use either anova() or lmertest to get the pvalues
+
+
+#usinng purrr()
+
+outcomes <- c("")
+
+alpha_models <- map(outcomes, ~ lmer(#fill in model
+  ))
+
+#use broom.mixed() again to nice obtain data from the model output 
+
+```
+
+
+
+

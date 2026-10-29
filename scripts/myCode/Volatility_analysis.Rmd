@@ -1,0 +1,878 @@
+---
+title: "VolatilityAnalysis"
+author: "Jacob"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+library(dplyr)
+library(broom)
+library(tibble)
+library(tidyverse)
+library(ggplot2)
+library(purrr)
+```
+
+
+```{r, include=FALSE}
+meta_long <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_long_metadata_microbiome_092026.csv")
+meta_wide <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_wide_metadata_microbiome_092026.csv")
+volatility_long <- fread("C:/Users/jhres/Documents/DRIFT2/Data/Raw/2026-09-08/volatility.csv")
+
+```
+
+
+```{r, include=FALSE}
+# Create DF with only values we need
+
+vol_meta <- volatility_long
+
+
+vol_meta <- vol_meta %>%
+  mutate(
+    subject_id = sub("\\..*$", "", SampleID)
+  )
+
+
+outcome_cols <- c(
+  
+  "pchange_outcome_wt_fnl_3m_BL",
+  "pchange_outcome_wt_fnl_6m_BL",
+  "pchange_outcome_wt_fnl_12m_BL",
+  "pchange_outcome_wt_fnl_6m_3m",
+  "pchange_outcome_wt_fnl_12m_6m",
+
+  "pchange_wc_average_3m_BL",
+  "pchange_wc_average_6m_BL",
+  "pchange_wc_average_12m_BL",
+  "pchange_wc_average_6m_3m",
+  "pchange_wc_average_12m_6m",
+  
+  "change_outcome_wt_fnl_3m_BL",
+  "change_outcome_wt_fnl_6m_BL",
+  "change_outcome_wt_fnl_12m_BL",
+  "change_outcome_wt_fnl_6m_3m",
+  "change_outcome_wt_fnl_12m_6m",
+
+  "change_wc_average_3m_BL",
+  "change_wc_average_6m_BL",
+  "change_wc_average_12m_BL",
+  "change_wc_average_6m_3m",
+  "change_wc_average_12m_6m"
+)
+
+
+
+# These are the controls we want to add to the DF not the ones we are controlling
+# for in the plots
+controls <- meta_long %>%
+  select(
+    subject_id,
+    age,
+    sex,
+    race_3,
+    ethnicity,
+    Intervention,
+    imf
+  ) %>%
+  distinct()
+
+
+vol_meta <- vol_meta %>%
+  left_join(
+    controls,
+    by = "subject_id",
+    relationship = "many-to-one"
+  )
+
+vol_meta <- vol_meta %>%
+  left_join(
+    meta_wide %>%
+      select(
+        subject_id,
+        all_of(outcome_cols)
+      ),
+    by = "subject_id",
+    relationship = "many-to-one"
+  )
+
+```
+
+
+```{r, include=FALSE}
+# Prepare the data 
+
+vol_meta$Intervention <- factor(vol_meta$Intervention, lev=c('IMF', 'DCR'))
+vol_meta$imf <- factor(vol_meta$imf, lev=c('1','0'))
+# Race categories are 1:white, 2:black/african american, 3:other
+vol_meta$race_3 <- factor(vol_meta$race_3, lev=c('0', '1', '2'))
+# 0=Female 1=Male
+vol_meta$sex <- factor(vol_meta$sex, lev=c('0','1'))
+# 0 
+vol_meta$ethnicity <- factor(vol_meta$ethnicity, lev=c('0','1'))
+
+# Look for missing volatility (should be 0)
+#colSums(is.na(vol_meta[, c('vol.ait', 'vol.un', 'vol.wt', 'vol.guni')])) 
+
+
+#standardize the volatility measures to have a mean of 0 and sd of 1
+vol_standardized <- vol_meta
+vol_standardized <- vol_standardized %>% 
+  mutate_at(
+    c('vol.ait', 
+      'vol.un', 
+      'vol.wt', 
+      'vol.guni'),
+    ~(scale(.) %>% as.vector))
+# mean should be 0 or as close to it as possible
+mean(vol_standardized$vol.ait)
+# SD should be 1
+sd(vol_standardized$vol.ait)
+
+
+```
+
+
+```{r, include=FALSE}
+# Functions for the next code
+run_vol_models <- function(vol_measure, outcomes, data) {
+  # Loop the outcomes, create an lm save in models
+  models <- map(
+    outcomes,
+    ~ lm(
+      # as.formula() converts text into a regression formula
+        as.formula(
+          paste(
+            .x,
+            "~ age + sex + race_3 + ethnicity +",
+            vol_measure
+          )
+        ),
+        data = data
+      )
+  )
+  
+  # Name each model according to its outcome
+  names(models) <- outcomes
+  
+  # Convert each model into a df cleaned by tidy
+  tidy_models <- map(
+  models,
+  ~ {
+    model <- .x
+
+    broom::tidy(
+      model,
+      conf.int = TRUE
+    ) %>%
+      mutate(
+        N = nobs(model)
+      )
+  }
+)
+
+  # Take all results and make a df
+  results <- bind_rows(
+    tidy_models,
+    .id = "Outcome"
+  )
+  
+  # Take the results table, name a column after the diversity
+  # remove the stuff we dont need and keep just the outcome rows we want
+  # (df contains results for all outcomes) This can be made less redundant
+  # but theres no point on wasting time 
+  results <- results %>%
+  filter(
+    term == vol_measure) %>%
+  mutate(
+    vol_measure = vol_measure)
+  
+
+  return(results) 
+}
+
+
+```
+
+
+```{r, include=FALSE}
+# Create the separate DF's for each timepoint
+
+vol_measures_BL <- c(
+                     'vol.ait', 
+                     'vol.un', 
+                     'vol.wt', 
+                     'vol.guni'
+                     )
+
+outcomes_BL_3m <- c(
+              "pchange_outcome_wt_fnl_3m_BL",
+              "pchange_wc_average_3m_BL"
+              )
+
+outcomes_BL_6m <- c(
+              "pchange_outcome_wt_fnl_6m_BL",
+              "pchange_wc_average_6m_BL"
+              )
+
+outcomes_BL_12m <- c(
+              "pchange_outcome_wt_fnl_12m_BL",
+              "pchange_wc_average_12m_BL"
+              )
+
+
+vol_BL_3m <- vol_standardized %>%
+  filter(time_change == "0-3m")
+
+vol_BL_6m <- vol_standardized %>%
+  filter(time_change == "0-6m")
+
+vol_BL_12m <- vol_standardized %>%
+  filter(time_change == "0-12m")
+
+#---------------------------------------------------------------------------
+# Create separate df's for each
+ait_results_BL_3m <- run_vol_models("vol.ait",outcomes_BL_3m,vol_BL_3m)
+un_results_BL_3m <- run_vol_models("vol.un",outcomes_BL_3m,vol_BL_3m)
+wt_results_BL_3m <- run_vol_models("vol.wt",outcomes_BL_3m,vol_BL_3m)
+guni_results_BL_3m <- run_vol_models("vol.guni",outcomes_BL_3m,vol_BL_3m)
+# Clean the table using kable()
+knitr::kable(ait_results_BL_3m, caption = "ait Predicting Clinical Changes from BL to 3m")
+knitr::kable(un_results_BL_3m, caption = "un Predicting Clinical Changes from BL to 3m")
+knitr::kable(wt_results_BL_3m, caption = "wt Predicting Clinical Changes from BL to 3m")
+knitr::kable(guni_results_BL_3m, caption = "guni Predicting Clinical Changes from BL to 3m")
+#---------------------------------------------------------------------------
+
+
+#---------------------------------------------------------------------------
+ait_results_BL_6m <- run_vol_models("vol.ait",outcomes_BL_6m,vol_BL_6m)
+un_results_BL_6m <- run_vol_models("vol.un",outcomes_BL_6m,vol_BL_6m)
+wt_results_BL_6m <- run_vol_models("vol.wt",outcomes_BL_6m,vol_BL_6m)
+guni_results_BL_6m <- run_vol_models("vol.guni",outcomes_BL_6m,vol_BL_6m)
+knitr::kable(ait_results_BL_6m, caption = "ait Predicting Clinical Changes from BL to 6m")
+knitr::kable(un_results_BL_6m, caption = "un Predicting Clinical Changes from BL to 6m")
+knitr::kable(wt_results_BL_6m, caption = "wt Predicting Clinical Changes from BL to 6m")
+knitr::kable(guni_results_BL_6m, caption = "guni Predicting Clinical Changes from BL to 6m")
+#---------------------------------------------------------------------------
+
+
+#---------------------------------------------------------------------------
+ait_results_BL_12m <- run_vol_models("vol.ait",outcomes_BL_12m,vol_BL_12m)
+un_results_BL_12m <- run_vol_models("vol.un",outcomes_BL_12m,vol_BL_12m)
+wt_results_BL_12m <- run_vol_models("vol.wt",outcomes_BL_12m,vol_BL_12m)
+guni_results_BL_12m <- run_vol_models("vol.guni",outcomes_BL_12m,vol_BL_12m)
+knitr::kable(ait_results_BL_12m, caption = "ait Predicting Clinical Changes from BL to 12m")
+knitr::kable(un_results_BL_12m, caption = "un Predicting Clinical Changes from BL to 12m")
+knitr::kable(wt_results_BL_12m, caption = "wt Predicting Clinical Changes from BL to 12m")
+knitr::kable(guni_results_BL_12m, caption = "guni Predicting Clinical Changes from BL to 12m")
+#---------------------------------------------------------------------------
+
+```
+
+```{r, include=FALSE}
+# Create the combined DF's for each timepoint
+
+#---------------------------------------------------------------------------
+# combine all 4 diversity measures df's
+all_vol_results_BL_3m <- bind_rows(
+  "vol.ait" = ait_results_BL_3m,
+  "vol.un" = un_results_BL_3m,
+  "vol.wt" = wt_results_BL_3m,
+  "vol.guni" = guni_results_BL_3m,
+  .id = "Volatility"
+)
+
+# Add the significance table to the plot with p value of .05 highlighting the significance, also renames the outcome variables
+all_vol_results_BL_3m <- all_vol_results_BL_3m %>%
+  mutate(
+    sig = ifelse(p.value < 0.05, "Sig", "N.S."),
+    Outcome = recode(
+      Outcome,
+      "change_outcome_wt_fnl_3m_BL" = "Weight",
+      "change_wc_average_3m_BL" = "Waist circumference"
+    )
+  )
+#---------------------------------------------------------------------------
+
+
+#---------------------------------------------------------------------------
+all_vol_results_BL_6m <- bind_rows(
+  "vol.ait" = ait_results_BL_6m,
+  "vol.un" = un_results_BL_6m,
+  "vol.wt" = wt_results_BL_6m,
+  "vol.guni" = guni_results_BL_6m,
+  .id = "Volatility"
+)
+
+all_vol_results_BL_6m <- all_vol_results_BL_6m %>%
+  mutate(
+    sig = ifelse(p.value < 0.05, "Sig", "N.S."),
+    Outcome = recode(
+      Outcome,
+      "change_outcome_wt_fnl_6m_BL" = "Weight",
+      "change_wc_average_6m_BL" = "Waist circumference"
+    )
+  )
+#---------------------------------------------------------------------------
+
+
+#---------------------------------------------------------------------------
+all_vol_results_BL_12m <- bind_rows(
+  "vol.ait" = ait_results_BL_12m,
+  "vol.un" = un_results_BL_12m,
+  "vol.wt" = wt_results_BL_12m,
+  "vol.guni" = guni_results_BL_12m,
+  .id = "Volatility"
+)
+
+all_vol_results_BL_12m <- all_vol_results_BL_12m %>%
+  mutate(
+    sig = ifelse(p.value < 0.05, "Sig", "N.S."),
+    Outcome = recode(
+      Outcome,
+      "change_outcome_wt_fnl_12m_BL" = "Weight",
+      "change_wc_average_12m_BL" = "Waist circumference"
+    )
+  )
+#---------------------------------------------------------------------------
+```
+
+
+```{r, include=FALSE}
+# Functions for the plots
+
+single_plot <- function(result, subtitle) {
+ 
+  plot <- ggplot(
+  result,
+  aes(
+    x = Outcome,
+    y = estimate
+  )
+) +
+  # Reference line representing no association
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey20"
+  ) +
+  
+  # Confidence intervals
+  geom_errorbar(
+    aes(
+      ymin = conf.low,
+      ymax = conf.high
+    ),
+    width = 0.05,
+    linewidth = 1
+  ) +
+  # Regression estimates
+  geom_point(
+    aes(shape = sig),
+    size = 4
+  ) +
+  # Flip the axes so outcome names are easier to read
+  coord_flip() +
+  # Filled point = significant; open point = not significant
+  scale_shape_manual(
+    values = c(
+      "Sig" = 19,
+      "N.S." = 1
+    )
+  ) +
+  labs(
+    title = "Overall Volatility in overall composition and changes in clinical outcomes",
+    subtitle = subtitle,
+    x = "Volatility measure",
+    y = "Regression estimate",
+    shape = "Statistical significance"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(
+      size = 14,
+      face = "bold"
+    ),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    legend.position = "bottom"
+  )
+  return(plot)
+}
+
+
+
+
+faceted_plot <- function(results, subtitle) {
+  plot <- ggplot(
+  results,
+  aes(
+    x = Volatility,
+    y = estimate
+  )
+) +
+  # Reference line representing no association
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    color = "grey20"
+  ) +
+  
+  # Confidence intervals
+  geom_errorbar(
+    aes(
+      ymin = conf.low,
+      ymax = conf.high
+    ),
+    width = 0.05,
+    linewidth = 1
+  ) +
+    
+    
+  # Regression estimates
+  geom_point(
+    aes(shape = sig),
+    size = 4
+  ) +
+  
+  # Flip the axes so outcome names are easier to read
+  coord_flip() +
+
+  facet_wrap(
+    ~ Outcome,
+    scales = "free_x"
+  ) +
+  
+  # Filled point = significant; open point = not significant
+  scale_shape_manual(
+    values = c(
+      "Sig" = 19,
+      "N.S." = 1
+    )
+  ) +
+  
+  labs(
+    title = "Overall Volatility in overall composition and changes in clinical outcomes",
+    subtitle = subtitle,
+    x = "Volatility measure",
+    y = "Regression estimate",
+    shape = "Statistical significance"
+  ) +
+    
+      
+  theme_bw() +
+  theme(
+    plot.title = element_text(
+      size = 14,
+      face = "bold"
+    ),
+    plot.subtitle = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    legend.position = "bottom"
+  )
+  return(plot)
+}
+
+
+```
+
+
+
+```{r, include=FALSE}
+
+#---------------------------------------------------------------------------
+ait_3m <- all_vol_results_BL_3m %>%
+  filter(Volatility == "vol.ait") %>%
+  single_plot("Baseline to three months")
+
+ait_6m <- all_vol_results_BL_6m %>%
+  filter(Volatility == "vol.ait") %>%
+  single_plot("Baseline to six months")
+
+ait_12m <- all_vol_results_BL_12m %>%
+  filter(Volatility == "vol.ait") %>%
+  single_plot("Baseline to twelve months")
+
+
+
+ait_3m
+ait_6m
+ait_12m
+
+```
+
+```{r include=FALSE}
+
+faceted_vol_plot_BL_3m <- faceted_plot(all_vol_results_BL_3m, "Baseline to three months")
+faceted_vol_plot_BL_3m
+faceted_vol_plot_BL_6m <- faceted_plot(all_vol_results_BL_6m, "Baseline to six months")
+faceted_vol_plot_BL_6m
+faceted_vol_plot_BL_12m <- faceted_plot(all_vol_results_BL_12m, "Baseline to twelve months")
+faceted_vol_plot_BL_12m
+```
+
+
+``` {r, echo=FALSE}
+plot_overall_results <- function(results, subtitle) {
+
+  plot_data <- results %>%
+    mutate(
+      sig = if_else(p.value < 0.05, "Sig", "N.S."),
+      Measurement = factor(
+        Volatility,
+        levels = rev(c(
+          "vol.ait",
+          "vol.un",
+          "vol.wt",
+          "vol.guni"
+        )),
+        labels = rev(c(
+          "Aitchison volatility",
+          "Unweighted UniFrac volatility",
+          "Weighted UniFrac volatility",
+          "Generalized UniFrac volatility"
+        ))
+      ),
+      Outcome = case_when(
+        grepl("outcome_wt_fnl", Outcome) ~ "Weight percent change",
+        grepl("wc_average", Outcome) ~ "Waist circumference percent change",
+        TRUE ~ as.character(Outcome)
+      ),
+      Outcome = factor(
+        Outcome,
+        levels = c(
+          "Weight percent change",
+          "Waist circumference percent change"
+        )
+      )
+    )
+
+  ggplot(plot_data, aes(x = Measurement, y = estimate)) +
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      color = "grey20"
+    ) +
+    geom_errorbar(
+      aes(ymin = conf.low, ymax = conf.high),
+      width = 0.05,
+      linewidth = 1,
+      color = "#0072B2"
+    ) +
+    geom_point(
+      aes(shape = sig),
+      size = 4,
+      color = "#0072B2"
+    ) +
+    coord_flip() +
+    facet_grid(~ Outcome) +
+    scale_shape_manual(
+      values = c("Sig" = 19, "N.S." = 1)
+    ) +
+    labs(
+      title = "Volatility associations with clinical outcomes",
+      subtitle = subtitle,
+      x = "Volatility measure",
+      y = "Regression estimate",
+      shape = "Statistical significance"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 11),
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 11),
+      legend.position = "bottom"
+    )
+}
+
+plot_overall_results(
+  all_vol_results_BL_3m,
+  "IMF and DCR combined: baseline to three months"
+)
+
+plot_overall_results(
+  all_vol_results_BL_6m,
+  "IMF and DCR combined: baseline to six months"
+)
+
+plot_overall_results(
+  all_vol_results_BL_12m,
+  "IMF and DCR combined: baseline to twelve months"
+)
+```
+
+# Prepare models Split by intervention
+```{r, echo=FALSE}
+
+run_intervention_vol_models <- function(data, outcomes) {
+  purrr::map_dfr(
+    c("vol.ait", "vol.un", "vol.wt", "vol.guni"),
+    function(measure) {
+      purrr::map_dfr(c("IMF", "DCR"), function(group) {
+        group_data <- dplyr::filter(data, Intervention == group)
+
+        run_vol_models(measure, outcomes, group_data) %>%
+          dplyr::mutate(Intervention = group)
+      }) %>%
+        dplyr::mutate(Volatility = measure)
+    }
+  ) %>%
+    dplyr::mutate(
+      sig = ifelse(p.value < 0.05, "Sig", "N.S."),
+      Outcome = dplyr::case_when(
+        grepl("outcome_wt_fnl", Outcome) ~ "Weight",
+        grepl("wc_average", Outcome) ~ "Waist circumference",
+        TRUE ~ Outcome
+      )
+    )
+}
+
+intervention_results_BL_3m <- run_intervention_vol_models(
+  vol_BL_3m, outcomes_BL_3m
+)
+intervention_results_BL_6m <- run_intervention_vol_models(
+  vol_BL_6m, outcomes_BL_6m
+)
+intervention_results_BL_12m <- run_intervention_vol_models(
+  vol_BL_12m, outcomes_BL_12m
+)
+  
+
+```
+
+
+```{r, echo=FALSE}
+
+
+plot_intervention_results <- function(results, subtitle) {
+
+  ggplot(
+    results,
+    aes(
+      x = Volatility,
+      y = estimate,
+      color = Intervention
+    )
+  ) +
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      color = "grey20"
+    ) +
+    geom_errorbar(
+      aes(
+        ymin = conf.low,
+        ymax = conf.high
+      ),
+      width = 0.05,
+      linewidth = 1
+    ) +
+    geom_point(
+      aes(shape = sig),
+      size = 4
+    ) +
+    coord_flip() +
+    facet_grid(
+      Intervention ~ Outcome,
+      scales = "free_x"
+    ) +
+    scale_shape_manual(
+      values = c(
+        "Sig" = 19,
+        "N.S." = 1
+      )
+    ) +
+    scale_color_manual(
+      values = c(
+        "IMF" = "#D55E00",
+        "DCR" = "#0072B2"
+      )
+    ) +
+    labs(
+    title = "Overall Volatility in overall composition 
+    and changes in clinical outcomes",
+      subtitle = subtitle,
+      x = "Volatility measure",
+      y = "Regression estimate",
+      shape = "Statistical significance",
+      color = "Intervention"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(size = 21, face = "bold"),
+      plot.subtitle = element_text(size = 16),
+      axis.text = element_text(size = 16, colour = "black"),
+      axis.title = element_text(size = 18),
+      strip.text = element_text(size = 16),
+      legend.text = element_text(size = 14),
+      legend.title = element_text(size = 14),
+      legend.position = "bottom"
+    )
+}
+```
+
+```{r}
+
+
+intervention_plot_BL_3m <- plot_intervention_results(
+  intervention_results_BL_3m,
+  "Baseline to three months N = 133"
+)
+
+intervention_plot_BL_6m <- plot_intervention_results(
+  intervention_results_BL_6m,
+  "Baseline to six months N = 106"
+)
+
+intervention_plot_BL_12m <- plot_intervention_results(
+  intervention_results_BL_12m,
+  "Baseline to twelve months N = 98"
+)
+
+intervention_plot_BL_3m
+intervention_plot_BL_6m
+intervention_plot_BL_12m
+
+
+```
+
+```{r, echo=FALSE}
+# wt and wc
+p4 <- ggplot(
+  vol_BL_3m,
+  aes(
+    x = vol.wt,
+    y = pchange_wc_average_3m_BL
+  )
+) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#0072B2") +
+  labs(
+    title = "Weighted Unifrac Volatility 
+    and Waist Circumference & Change",
+    subtitle = "Baseline to 3 months",
+    x = "Standardized Weighted Unifrac Volatility",
+    y = "Waist Change From Baseline"
+  ) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold"),
+    plot.subtitle = element_text(size = 16),
+    axis.text = element_text(size = 16, colour = "black"),
+    axis.title = element_text(size = 18),
+    strip.text = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  ) +
+   theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA)
+  )
+
+# guni and wc
+p5 <- ggplot(
+  vol_BL_3m,
+  aes(
+    x = vol.guni,
+    y = pchange_wc_average_3m_BL
+  )
+) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, color = "#0072B2") +
+  labs(
+    title = "General Unifrac Volatility and 
+    Waist Circumference % Change",
+    subtitle = "Baseline to 3 months",
+    x = "Weighted Unifrac Volatility",
+    y = "Waist Change From Baseline"
+  ) + 
+  theme(
+    plot.title = element_text(size = 22, face = "bold"),
+    plot.subtitle = element_text(size = 16),
+    axis.text = element_text(size = 16, colour = "black"),
+    axis.title = element_text(size = 18),
+    strip.text = element_text(size = 16),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  ) +
+   theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA)
+  )
+
+p4
+
+p5
+
+
+ggsave(
+  "Scatter_plot_wt.png",
+  plot = p4,
+  bg = "transparent",
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+
+```
+
+
+```{r data-checks, echo=FALSE}
+# Test that the amount of participants is correct and we arent making graphs for 500 data points when we only want the correct 134
+time_windows <- c("0-3m", "0-6m", "0-12m")
+vol_measures <- c("vol.ait", "vol.un", "vol.wt", "vol.guni")
+
+outcomes_by_window <- list(
+  "0-3m" = c(
+    Weight = "change_outcome_wt_fnl_3m_BL",
+    Waist = "change_wc_average_3m_BL"
+  ),
+  "0-6m" = c(
+    Weight = "change_outcome_wt_fnl_6m_BL",
+    Waist = "change_wc_average_6m_BL"
+  ),
+  "0-12m" = c(
+    Weight = "change_outcome_wt_fnl_12m_BL",
+    Waist = "change_wc_average_12m_BL"
+  )
+)
+
+check_rows <- lapply(time_windows, function(window) {
+  dat <- vol_standardized[vol_standardized$time_change == window, ]
+
+  duplicates <- sum(duplicated(dat$subject_id))
+
+  data.frame(
+    Time_window = window,
+    Rows = nrow(dat),
+    Participants = length(unique(dat$subject_id)),
+    Duplicate_participant_rows = duplicates,
+    Weight_available = sum(!is.na(dat[[outcomes_by_window[[window]][["Weight"]]]])),
+    Waist_available = sum(!is.na(dat[[outcomes_by_window[[window]][["Waist"]]]])),
+    vol_ait_available = sum(!is.na(dat[["vol.ait"]])),
+    vol_un_available = sum(!is.na(dat[["vol.un"]])),
+    vol_wt_available = sum(!is.na(dat[["vol.wt"]])),
+    vol_guni_available = sum(!is.na(dat[["vol.guni"]]))
+  )
+})
+
+data_checks <- do.call(rbind, check_rows)
+knitr::kable(data_checks, caption = "Data availability by time window")
+
+# Flag any window where a participant contributes multiple rows.
+if (any(data_checks$Duplicate_participant_rows > 0)) {
+  warning("At least one time window has multiple rows for a participant.")
+}
+```
+

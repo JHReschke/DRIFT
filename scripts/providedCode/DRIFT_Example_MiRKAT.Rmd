@@ -1,0 +1,139 @@
+---
+title: "DRIFT_Example_MiRKAT"
+author: "AS"
+date: "2026-09-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = F, warning = F)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(broom)
+library(tibble)
+library(tidyverse)
+library(ggplot2)
+library(purrr)
+library(vegan)
+library(RColorBrewer)
+library(knitr)
+library(devtools)
+library(MiRKAT)
+library(cowplot)
+library(ggtext)
+
+```
+
+
+## MirKAt
+We are also interested in the association between the microbiome (particularly at baseline) and outcomes (particularly change in outcomes. We will use a function called MiRKAT to analyse the microbiome as a predictor of clinical outcomes.
+
+<br>
+
+Does the BL microbiome predict change in clinical outcomes (% and absolute), controlling for the baseline value and other covariates?
+
+<br>
+
+I will have you go through the secondary outcomes of interest here (and any others that you and Maggie have disccused looking at)
+
+### Load in data
+```{r}
+#load in the metadata
+meta <- fread("C:/Users/jhres/Documents/DRIFT2/Week3/DRIFT_long_metadata_microbiome_092026.csv")
+
+#and the aithison distance matrix (think this dataframe is ~495x495)
+Aitchison <- fread()
+```
+
+```{r}
+#prep data
+#factor varaiables
+#standardize alpha diversity measures
+
+
+#meta <- meta %>% arrange(subject_id)
+
+#filter metadata to timepoints of interest (e.g., BL & 3m) and arrange by SampleID so they are all in the same order
+meta.0m<- meta[meta$time==0,] %>%
+  arrange(SampleID)
+meta.0m<- meta.0m %>%
+  arrange(SampleID)
+
+#make sure no one is missing the outcome
+table(is.na(meta.0m$outcome))
+meta.0m[is.na(meta.0m$outcome)==F ,]
+summary(meta.0m$outcome)
+
+#see which IDs are not in both dataframes
+setdiff(meta.0m$subject_id, meta.3m$subject_id)
+setdiff(meta.3m$subject_id, meta.0m$subject_id)
+
+#filter dataframes to only include IDs that are at both timepoints
+common_ids <- intersect(meta.0m$subject_id, meta.3m$subject_id)
+
+meta.0m_weight <- meta.0m %>% filter(subject_id %in% common_ids)
+meta.3m_weight <- meta.3m %>% filter(subject_id %in% common_ids)
+
+#confirm
+#setdiff(meta.0m_weight$subject_id, meta.3m_weight$subject_id)
+#setdiff(meta.3m_weight$subject_id, meta.0m_weight$subject_id)
+```
+
+
+### Running MiRKAT
+```{r}
+#filter your Aitchison DM to have the same IDs
+Aitchison.0m<- Aitchison %>%
+  dplyr::select(one_of(meta.0m_weight$SampleID)) %>%
+  dplyr::filter(row.names(.) %in% meta.0m_weight$SampleID)%>%
+  dplyr::arrange(row.names(.))
+
+#confirm
+#table(colnames(Aitchison.0m)==meta.0m_weight$SampleID)
+
+#format the data
+Aitchison.0m_matrix <- as.matrix(Aitchison.0m)
+K.Aitchison.0m= D2K(Aitchison.0m_matrix) 
+K.Aitchison.unifrac<- list(K.Aitchison.0m)
+
+#create a set of covariates
+covariates <- data.frame(
+   age = meta.0m_weight$age   # etc.,            
+   )
+
+
+#?MiRKAT()
+#MiRKAT(
+#  y,   #this is your outcome
+#  X = NULL,
+#  Ks,  #this is the format Aitchison data
+#  out_type = "C",  #this is either C for continuous (e.g., weight) or D for dichotomous (e.g., Y/N or 0/1)
+#  method = "permutation",
+#  nperm = 999,  #this is the default for method permutation, you do not need to include this line
+#  returnKRV = T,  #default is FALSE, this is less important but can be included
+#  returnR2 = T  #default is FALSE, but we want the R^2 value
+#)
+
+
+#fill in the function :)
+wt <- MiRKAT()
+
+
+```
+
+```{r}
+#generating a simple table
+
+wt.df <- as.data.frame(wt)
+
+rownames(wt.df)[1] = "Baseline - 3 months"
+#can repeat for other timepoints, and use rbind() to put them into 1 table
+
+knitr::kable(wt.df)
+```
+
+I have code that runs these in more compex functions ... but I think the code above should be sufficient? ...
+
+
